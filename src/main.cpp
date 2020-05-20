@@ -39,12 +39,12 @@ class Twiddle
 public:
 	Twiddle()
 	{
-		p[0] = 0.6;
-		p[1] = 0.003;
-		p[2] = 10;
-		dp[0] = 0.1;
+		p[0] = 0.7;
+		p[1] = 0.002;
+		p[2] = 12.1;
+		dp[0] = 0.09;
 		dp[1] = 0.001;
-		dp[2] = 1;
+		dp[2] = 1.3;
 		iteration = 0;
 		current_param = -1; // init
 		current_param_direction = 1;
@@ -112,6 +112,7 @@ public:
 		total_dist += speed / 40; // 40 Hz refresh rate
 		total_frames++;
 		if (total_dist > 1147) // track length
+		//if (total_dist > 300)
 		{
 			if (best_frames == -1 || best_frames > total_frames) best_frames = total_frames;
 			if (current_param == -1) // init
@@ -137,10 +138,11 @@ public:
 		iteration++;
 		printf("iter %d best %.4f (%.8f, %.8f, %.8f) dp(%.8f,%.8f,%.8f) param %d%c last %d best %d\n", iteration, best_err, p[0], p[1], p[2], dp[0], dp[1], dp[2], current_param, current_param_direction==1?'+':'-', total_frames, best_frames);
 		fprintf(fLog, "iter %d best %.4f (%.8f, %.8f, %.8f) dp(%.8f,%.8f,%.8f) param %d%c last %d best %d\n", iteration, best_err, p[0], p[1], p[2], dp[0], dp[1], dp[2], current_param, current_param_direction == 1 ? '+' : '-', total_frames, best_frames);
+		fflush(fLog);
 		target_pid.Init(
-			p[0] + dp[0] * (current_param == 0),
-			p[1] + dp[1] * (current_param == 1),
-			p[2] + dp[2] * (current_param == 2));
+			p[0] + dp[0] * current_param_direction * (current_param == 0),
+			p[1] + dp[1] * current_param_direction * (current_param == 1),
+			p[2] + dp[2] * current_param_direction * (current_param == 2));
 		total_err = 0;
 		total_dist = 0;
 		total_frames = 0;
