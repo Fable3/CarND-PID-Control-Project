@@ -31,6 +31,12 @@ class PID {
    */
   double TotalError();
 
+  void Reset()
+  {
+	  prev_cte = 0;
+	  sum_cte = 0;
+  }
+
  private:
   /**
    * PID Errors
@@ -38,6 +44,9 @@ class PID {
   double p_error;
   double i_error;
   double d_error;
+
+  double prev_cte;
+  double sum_cte;
 
   /**
    * PID Coefficients

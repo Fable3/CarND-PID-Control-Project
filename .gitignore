@@ -2,3 +2,7 @@
 build
 tags
 .editorconfig
+src/.vs/*
+src/Debug/*
+src/CarND-PID-Control-Project.vcxproj.user
+src/twiddle.log
