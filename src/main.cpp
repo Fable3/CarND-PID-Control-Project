@@ -9,6 +9,20 @@
 #include "json.hpp"
 #include "PID.h"
 
+#ifndef WIN32
+#include <unistd.h>
+#include <time.h>
+
+uint32_t GetTickCount() {
+	struct timespec ts;
+	unsigned theTick = 0U;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	theTick = ts.tv_nsec / 1000000;
+	theTick += ts.tv_sec * 1000;
+	return theTick;
+}
+#endif
+
 // for convenience
 using nlohmann::json;
 using std::string;
