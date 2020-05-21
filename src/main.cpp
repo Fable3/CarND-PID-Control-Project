@@ -37,19 +37,43 @@ string hasData(string s) {
 class Twiddle
 {
 public:
-	Twiddle()
+	Twiddle(bool _active)
 	{
-		p[0] = 0.7;
-		p[1] = 0.002;
-		p[2] = 12.1;
-		dp[0] = 0.09;
-		dp[1] = 0.001;
-		dp[2] = 1.3;
+		active = _active;
+		/* manual tuning, good for fixed 0.3 throttle:
+		p[0] = 0.4;
+		p[1] = 0.00;
+		p[2] = 4; */
+		/* result of 333 iteration with fixed 0.3 throttle: 
+		p[0] = 1.22200785;
+		p[1] = 0.00786800;
+		p[2] = 29.69043041;*/
+		// more refined with simple speed control:
+		/*p[0] = 1.09100785;
+		p[1] = 0.01686800;
+		p[2] = 25.821;*/
+		/* result of 60 mph target speed optimization: */
+		/*p[0] = 1.01061975;
+		p[1] = 0.01408510;
+		p[2] = 23.62485219;*/
+		/* result of 100 mph target speed, optimized for time: */
+		p[0] = 0.98061975;
+		p[1] = 0.01408510;
+		p[2] = 23.62485219;
+		dp[0] = 0.03;
+		dp[1] = 0.003;
+		dp[2] = 0.4;
+	
+		/*dp[0] = 0.1;
+		dp[1] = 0.01;
+		dp[2] = 1;*/
 		iteration = 0;
 		current_param = -1; // init
 		current_param_direction = 1;
 		best_err = -1;
-		best_frames = -1;
+		//best_frames = -1;
+		best_time = 1000;
+		total_time = 0;
 		total_frames = -1;
 		fLog = fopen("twiddle.log", "at");
 	}
@@ -61,9 +85,14 @@ public:
 	double total_err;
 	double total_dist;
 	int total_frames;
-	int best_frames;
+	double total_time;
+	//int best_frames;
+	double best_time;
 	int current_param;
 	int current_param_direction; // -1 or 1
+	int last_tick_count = 0;
+	int lap_start_tick_count = 0;
+	bool active;
 
 	bool finished()
 	{
@@ -102,19 +131,47 @@ public:
 
 	bool record_cte(double cte, double speed)
 	{
+		int now = GetTickCount();
+		double delta_t = (now - last_tick_count) / 1000.0; // in seconds
+		last_tick_count = now;
+		total_dist += speed * delta_t;
+
+		if (!active)
+		{
+			// measure lap times only
+			if (cte > 5)
+			{
+				//printf("went offroad: %.2f\n", cte);
+				total_dist = 0;
+				lap_start_tick_count = now;
+				return false;
+			}
+
+			if (total_dist > 1147) // track length
+			{
+				total_time = (now - lap_start_tick_count) / 1000.0;
+				printf("lap time: %.2f sec\n", total_time);
+				if (best_time > total_time) best_time = total_time;
+				total_dist = 0;
+				lap_start_tick_count = now;
+			}
+			return true;
+		}
 		if (cte > 5)
 		{
 			printf("went offroad: %.2f\n", cte);
 			failed_to_improve();
 			return false;
 		}
-		total_err += cte * cte;
-		total_dist += speed / 40; // 40 Hz refresh rate
+		total_err += cte * cte * delta_t;
+		// time based: total_err += 1/40.0;
+		
 		total_frames++;
 		if (total_dist > 1147) // track length
-		//if (total_dist > 300)
+		//if (total_dist > 300) // for quick optimization
 		{
-			if (best_frames == -1 || best_frames > total_frames) best_frames = total_frames;
+			total_time = (now - lap_start_tick_count) / 1000.0;
+			if (best_time > total_time) best_time = total_time;
 			if (current_param == -1) // init
 			{
 				best_err = total_err;
@@ -135,17 +192,24 @@ public:
 
 	void start_next_run(PID &target_pid)
 	{
+		last_tick_count = GetTickCount();
+		lap_start_tick_count = last_tick_count;
+		total_dist = 0;
+
+		if (!active) return;
 		iteration++;
-		printf("iter %d best %.4f (%.8f, %.8f, %.8f) dp(%.8f,%.8f,%.8f) param %d%c last %d best %d\n", iteration, best_err, p[0], p[1], p[2], dp[0], dp[1], dp[2], current_param, current_param_direction==1?'+':'-', total_frames, best_frames);
-		fprintf(fLog, "iter %d best %.4f (%.8f, %.8f, %.8f) dp(%.8f,%.8f,%.8f) param %d%c last %d best %d\n", iteration, best_err, p[0], p[1], p[2], dp[0], dp[1], dp[2], current_param, current_param_direction == 1 ? '+' : '-', total_frames, best_frames);
+		printf("iter %d best %.4f (%.8f, %.8f, %.8f) dp(%.8f,%.8f,%.8f) param %d%c best %.2fs\n", iteration, best_err, p[0], p[1], p[2], dp[0], dp[1], dp[2], current_param, current_param_direction==1?'+':'-', best_time);
+		fprintf(fLog, "iter %d best %.4f (%.8f, %.8f, %.8f) dp(%.8f,%.8f,%.8f) param %d%c last %.2fs best %.2fs\n", iteration, best_err, p[0], p[1], p[2], dp[0], dp[1], dp[2], current_param, current_param_direction == 1 ? '+' : '-', total_time, best_time);
 		fflush(fLog);
 		target_pid.Init(
 			p[0] + dp[0] * current_param_direction * (current_param == 0),
 			p[1] + dp[1] * current_param_direction * (current_param == 1),
 			p[2] + dp[2] * current_param_direction * (current_param == 2));
+		printf("trying params: (%.8f, %.8f, %.8f)\n", target_pid.Kp, target_pid.Ki, target_pid.Kd);
 		total_err = 0;
-		total_dist = 0;
+		
 		total_frames = 0;
+		total_time = 0;
 	}
 
 };
@@ -154,16 +218,20 @@ int main() {
   uWS::Hub h;
 
   PID pid;
+  PID pid_speed;
+  pid_speed.Init(0.1, 0, 0.1);
   /**
    * TODO: Initialize the pid variable.
    */
-  pid.Init(0.4, 0.0000, 4);
+  pid.Init(0.98061975, 0.01408510, 23.62485219);
   int message_count = 0;
-  double distance = 0;
-  Twiddle twiddle;
-  twiddle.start_next_run(pid);
+  //double distance = 0;
+  Twiddle twiddle(false);
   
-  h.onMessage([&pid, &message_count, &distance, &twiddle](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  twiddle.start_next_run(pid);
+  int last_lap_time_start = 0;
+  
+  h.onMessage([&pid, &pid_speed, &message_count, &twiddle](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -202,20 +270,13 @@ int main() {
 			  std::string reset_msg = "42[\"reset\",{}]";
 			  ws.send(reset_msg.data(), reset_msg.length(), uWS::OpCode::TEXT);
 			  pid.Reset();
+			  pid_speed.Reset();
 			  message_count = 0;
-			  distance = 0;
+			  //distancedistance = 0;
 			  return;
 		  }
-		  /*if (fabs(cte) > 5)
-		  {
-			  std::string reset_msg = "42[\"reset\",{}]";
-			  ws.send(reset_msg.data(), reset_msg.length(), uWS::OpCode::TEXT);
-			  pid.Reset();
-			  message_count = 0;
-			  return;
-		  }*/
 		  message_count++;
-		  distance += speed_mps;
+		  //distance += speed_mps;
 		  pid.UpdateError(cte);
 		  if (speed < 0.1) steer_value = 0;
 		  else
@@ -226,9 +287,22 @@ int main() {
           /*std::cout << message_count<<" dist "<<distance<<" CTE: " << cte << " Speed: "<<speed<<" Steering Value: " << steer_value 
                     << std::endl;*/
 
+		  // from my behavior cloning drive.py:
+		  double set_speed = 70;
+		  double throttle;
+		  double target_speed = set_speed / (1 + std::min(fabs(steer_value), 1.5));
+		  /* old routine from drive.py:
+		  if (target_speed > speed*1.2) throttle = 100;
+		  else if (target_speed > speed) throttle = 0.3;
+		  else if (target_speed > speed / 1.2) throttle = 0;
+		  else throttle = -100;*/
+		  double speed_diff = speed - target_speed; 
+		  // for pid_speed testing: double speed_diff = speed - 30;
+		  pid_speed.UpdateError(speed_diff);
+		  throttle = -pid_speed.TotalError();
           json msgJson;
           msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = 0.3;
+          msgJson["throttle"] = throttle;
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
           //std::cout << msg << std::endl;
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);

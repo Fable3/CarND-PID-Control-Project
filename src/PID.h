@@ -37,7 +37,7 @@ class PID {
 	  sum_cte = 0;
   }
 
- private:
+ public:
   /**
    * PID Errors
    */
